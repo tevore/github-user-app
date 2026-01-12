@@ -1,4 +1,4 @@
-package com.example.demo.error;
+package com.tevore.error;
 
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;

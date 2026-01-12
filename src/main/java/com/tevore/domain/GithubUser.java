@@ -1,4 +1,4 @@
-package com.example.demo.domain;
+package com.tevore.domain;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;

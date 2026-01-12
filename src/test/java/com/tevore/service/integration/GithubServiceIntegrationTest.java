@@ -1,39 +1,35 @@
-package com.example.demo.controller.integration;
+package com.tevore.service.integration;
 
-import com.example.demo.controller.GithubController;
-import com.example.demo.domain.GithubUser;
-import com.example.demo.utils.TestUtils;
+import com.tevore.domain.GithubUser;
+import com.tevore.service.GithubService;
 import com.github.tomakehurst.wiremock.WireMockServer;
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.wiremock.spring.ConfigureWireMock;
 import org.wiremock.spring.EnableWireMock;
 import org.wiremock.spring.InjectWireMock;
 
-import java.util.Set;
-
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
-import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SpringBootTest
+@ExtendWith(SpringExtension.class)
 @EnableCaching
 @EnableWireMock(@ConfigureWireMock(port = 8081))
-public class GithubApplicationIntegrationTest {
+public class GithubServiceIntegrationTest {
 
     @Autowired
-    GithubController githubController;
+    GithubService githubService;
 
     @Autowired
     private CacheManager cacheManager;
@@ -50,7 +46,7 @@ public class GithubApplicationIntegrationTest {
     }
 
     @Test
-    public void shouldSuccessfullyReturnAUser() {
+    public void shouldFindUserAndValidateCacheHitForSameCall() {
 
         //Verify cache is empty
         Cache githubUserCache = cacheManager.getCache("githubUsers");
@@ -60,9 +56,9 @@ public class GithubApplicationIntegrationTest {
                 .willReturn(okJson("{\"login\":\"some-user\"}")));
 
         //Two calls to ensure the cache is being hit
-        GithubUser firstCall = githubController.retrieveGithubUser("some-user");
+        GithubUser firstCall = githubService.getGithubUserInfo("some-user");
 
-        GithubUser secondCall = githubController.retrieveGithubUser("some-user");
+        GithubUser secondCall = githubService.getGithubUserInfo("some-user");
 
         assertEquals(firstCall.name(), secondCall.name());
 
@@ -76,7 +72,8 @@ public class GithubApplicationIntegrationTest {
     }
 
     @Test
-    public void shouldVerifyCacheEvictionOnSuccessfulRetrieval() throws InterruptedException {
+    public void shouldVerifyCacheEviction() throws InterruptedException {
+
         //Verify cache is empty
         Cache githubUserCache = cacheManager.getCache("githubUsers");
         assertNull(githubUserCache.get("some-user"));
@@ -85,11 +82,11 @@ public class GithubApplicationIntegrationTest {
                 .willReturn(okJson("{\"login\":\"some-user\"}")));
 
         //Two calls to ensure the cache is being hit
-        GithubUser firstCall = githubController.retrieveGithubUser("some-user");
+        GithubUser firstCall = githubService.getGithubUserInfo("some-user");
 
         Thread.sleep(6000);
 
-        GithubUser secondCall = githubController.retrieveGithubUser("some-user");
+        GithubUser secondCall = githubService.getGithubUserInfo("some-user");
 
         assertEquals(firstCall.name(), secondCall.name());
 
@@ -100,6 +97,7 @@ public class GithubApplicationIntegrationTest {
 
         //Since we let the cache expire, wiremock should have 2 hit counts
         wireMockServer.verify(2, getRequestedFor(urlEqualTo("/users/some-user")));
+
     }
 
     @Test
@@ -112,7 +110,7 @@ public class GithubApplicationIntegrationTest {
                         .withStatus(404)));
 
         assertThrows(HttpClientErrorException.class, () ->
-                githubController.retrieveGithubUser("nonexistent-user"));
+                githubService.getGithubUserInfo("nonexistent-user"));
 
         // Verify WireMock received the request
         wireMockServer.verify(getRequestedFor(urlEqualTo("/users/nonexistent-user")));
@@ -129,50 +127,22 @@ public class GithubApplicationIntegrationTest {
                         .withBody("{\"message\":\"Internal Server Error\"}")));
 
         assertThrows(HttpServerErrorException.class, () ->
-                githubController.retrieveGithubUser("some-user"));
+                githubService.getGithubUserInfo("some-user"));
 
         wireMockServer.verify(getRequestedFor(urlEqualTo("/users/some-user")));
     }
 
     @Test
-    void shouldThrowErrorMessageDueToMissingUsernameValue() {
+    public void shouldFailDueToNullUsername() {
 
         stubFor(get(urlEqualTo("/users/"))
                 .willReturn(aResponse()
-                        .withBody(("{\"message\":\"User not found\"}"))
+                        .withStatus(500)
                         .withHeader("Content-Type", "application/json")
-                        .withStatus(404)));
+                        .withBody("{\"message\":\"Internal Server Error\"}")));
 
         assertThrows(HttpClientErrorException.class, () ->
-                githubController.retrieveGithubUser(null));
-    }
-
-    @Test
-    void shouldThrowErrorMessageDueToInvalidUsername() {
-
-        Set<ConstraintViolation<?>> constraintsViolations = assertThrows(ConstraintViolationException.class, () -> {
-            githubController.retrieveGithubUser("--bad-user");
-        }).getConstraintViolations();
-
-        constraintsViolations.forEach(cv -> {
-            assertEquals(TestUtils.INVALID_FORMAT_USERNAME, cv.getMessage());
-        });
-
+                githubService.getGithubUserInfo(null));
 
     }
-
-    @Test
-    void shouldThrowErrorMessageDueToUsernameBeingTooLong() {
-
-        Set<ConstraintViolation<?>> constraintsViolations = assertThrows(ConstraintViolationException.class, () -> {
-            githubController.retrieveGithubUser("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        }).getConstraintViolations();
-
-        constraintsViolations.forEach(cv -> {
-            assertEquals(TestUtils.INVALID_LENGTH_USERNAME, cv.getMessage());
-        });
-
-    }
-
-
 }

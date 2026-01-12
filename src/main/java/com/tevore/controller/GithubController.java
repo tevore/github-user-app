@@ -1,7 +1,7 @@
-package com.example.demo.controller;
+package com.tevore.controller;
 
-import com.example.demo.domain.GithubUser;
-import com.example.demo.service.GithubService;
+import com.tevore.domain.GithubUser;
+import com.tevore.service.GithubService;
 import jakarta.validation.constraints.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;

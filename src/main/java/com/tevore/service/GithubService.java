@@ -1,6 +1,6 @@
-package com.example.demo.service;
+package com.tevore.service;
 
-import com.example.demo.domain.GithubUser;
+import com.tevore.domain.GithubUser;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatusCode;

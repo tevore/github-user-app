@@ -1,7 +1,7 @@
-package com.example.demo.service;
+package com.tevore.service;
 
-import com.example.demo.cache.CachingConfig;
-import com.example.demo.domain.GithubUser;
+import com.tevore.cache.CachingConfig;
+import com.tevore.domain.GithubUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.restclient.test.autoconfigure.RestClientTest;

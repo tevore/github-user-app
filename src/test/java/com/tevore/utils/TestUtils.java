@@ -1,6 +1,6 @@
-package com.example.demo.utils;
+package com.tevore.utils;
 
-import com.example.demo.domain.GithubUser;
+import com.tevore.domain.GithubUser;
 
 public class TestUtils {
 
