@@ -1,6 +1,6 @@
 package com.tevore.controller;
 
-import com.tevore.domain.GithubUser;
+import com.tevore.domain.GithubUserWithRepos;
 import com.tevore.service.GithubService;
 import jakarta.validation.constraints.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,11 +36,11 @@ public class GithubController {
      * Length: Must be a maximum of 39 characters long.
      */
     @GetMapping(value = "/user/{username}")
-    public GithubUser retrieveGithubUser(
+    public GithubUserWithRepos retrieveGithubUser(
             @PathVariable("username")
             @Pattern(regexp = "^[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*$", message = "Usernames can only contain alphanumerics and single hyphens")
             @Size(min = 1, max = 39, message = "Usernames are between 1 and 39 characters")
             String username) {
-        return githubService.getGithubUserInfo(username);
+        return githubService.retrieveGithubUserAndRepoInfo(username);
     }
 }

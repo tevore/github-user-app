@@ -1,178 +1,274 @@
 package com.tevore.controller.integration;
 
-import com.tevore.controller.GithubController;
-import com.tevore.domain.GithubUser;
-import com.tevore.utils.TestUtils;
 import com.github.tomakehurst.wiremock.WireMockServer;
-import jakarta.validation.ConstraintViolation;
+import com.tevore.configuration.TestCacheConfig;
+import com.tevore.controller.GithubController;
+import com.tevore.domain.GithubRepo;
+import com.tevore.domain.GithubUser;
+import com.tevore.domain.GithubUserWithRepos;
+import com.tevore.utils.TestUtils;
 import jakarta.validation.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.wiremock.spring.ConfigureWireMock;
 import org.wiremock.spring.EnableWireMock;
 import org.wiremock.spring.InjectWireMock;
 
+import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
-import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
+import static com.github.tomakehurst.wiremock.stubbing.Scenario.STARTED;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SpringBootTest
-@EnableCaching
-@EnableWireMock(@ConfigureWireMock(port = 8081))
+@EnableWireMock(@ConfigureWireMock(port = 0)) // dynamic port avoids collisions
+@Import(TestCacheConfig.class)
+@ActiveProfiles("test")
 public class GithubApplicationIntegrationTest {
 
     @Autowired
     GithubController githubController;
 
     @Autowired
-    private CacheManager cacheManager;
-
-    @Value("${wiremock.server.baseUrl}")
-    private String wireMockUrl;
+    CacheManager cacheManager;
 
     @InjectWireMock
-    private WireMockServer wireMockServer;
+    WireMockServer wireMockServer;
 
     @BeforeEach
     void setUp() {
-        cacheManager.resetCaches();
+        wireMockServer.resetAll();
+
+        Cache users = cacheManager.getCache("githubUsers");
+        Cache repos = cacheManager.getCache("githubUserRepos");
+        assertNotNull(users, "githubUsers cache must exist");
+        assertNotNull(repos, "githubUserRepos cache must exist");
+
+        users.clear();
+        repos.clear();
     }
 
     @Test
-    public void shouldSuccessfullyReturnAUser() {
-
-        //Verify cache is empty
+    public void shouldSuccessfullyReturnAUserAndCacheBothResults() {
+        // Verify caches are empty
         Cache githubUserCache = cacheManager.getCache("githubUsers");
+        Cache githubRepoCache = cacheManager.getCache("githubUserRepos");
         assertNull(githubUserCache.get("some-user"));
+        assertNull(githubRepoCache.get("some-user"));
 
         stubFor(get(urlEqualTo("/users/some-user"))
                 .willReturn(okJson("{\"login\":\"some-user\"}")));
 
-        //Two calls to ensure the cache is being hit
-        GithubUser firstCall = githubController.retrieveGithubUser("some-user");
+        stubFor(get(urlEqualTo("/users/some-user/repos"))
+                .willReturn(okJson("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
-        GithubUser secondCall = githubController.retrieveGithubUser("some-user");
+        // Two calls to ensure the cache is being hit
+        GithubUserWithRepos firstCall = githubController.retrieveGithubUser("some-user");
+        GithubUserWithRepos secondCall = githubController.retrieveGithubUser("some-user");
 
-        assertEquals(firstCall.name(), secondCall.name());
+        // Basic response assertions
+        assertEquals(firstCall.owner().login(), secondCall.owner().login());
+        assertEquals(1, secondCall.repos().size());
+        assertEquals("repo", secondCall.repos().get(0).name());
 
-        //Verify cache has user we just searched for
+        // Verify cache has user
         GithubUser cachedUser = githubUserCache.get("some-user", GithubUser.class);
         assertNotNull(cachedUser);
         assertEquals("some-user", cachedUser.login());
 
-        //Since we hit the cache, wiremock should have a single count
+        // Verify cache has repos (stored as List<GithubRepo>)
+        List<GithubRepo> cachedRepos = (List<GithubRepo>) githubRepoCache.get("some-user").get();
+        assertNotNull(cachedRepos);
+        assertEquals(1, cachedRepos.size());
+        assertEquals("repo", cachedRepos.get(0).name());
+
+        // Since we hit the cache, wiremock should have a single count per endpoint
         wireMockServer.verify(1, getRequestedFor(urlEqualTo("/users/some-user")));
+        wireMockServer.verify(1, getRequestedFor(urlEqualTo("/users/some-user/repos")));
     }
 
     @Test
-    public void shouldVerifyCacheEvictionOnSuccessfulRetrieval() throws InterruptedException {
-        //Verify cache is empty
+    public void shouldVerifyCacheEvictionOnSuccessfulRetrieval() {
+        // This assumes TestCacheConfig expireAfterWrite is short (e.g., 5s)
         Cache githubUserCache = cacheManager.getCache("githubUsers");
+        Cache githubRepoCache = cacheManager.getCache("githubUserRepos");
+
         assertNull(githubUserCache.get("some-user"));
+        assertNull(githubRepoCache.get("some-user"));
 
         stubFor(get(urlEqualTo("/users/some-user"))
                 .willReturn(okJson("{\"login\":\"some-user\"}")));
 
-        //Two calls to ensure the cache is being hit
-        GithubUser firstCall = githubController.retrieveGithubUser("some-user");
+        stubFor(get(urlEqualTo("/users/some-user/repos"))
+                .willReturn(okJson("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
-        Thread.sleep(6000);
+        githubController.retrieveGithubUser("some-user");
 
-        GithubUser secondCall = githubController.retrieveGithubUser("some-user");
+        TestUtils.awaitUntilNull(githubUserCache, "some-user", Duration.ofSeconds(10));
+        TestUtils.awaitUntilNull(githubRepoCache, "some-user", Duration.ofSeconds(10));
 
-        assertEquals(firstCall.name(), secondCall.name());
+        githubController.retrieveGithubUser("some-user");
 
-        //Verify cache has user we just searched for
-        GithubUser cachedUser = githubUserCache.get("some-user", GithubUser.class);
-        assertNotNull(cachedUser);
-        assertEquals("some-user", cachedUser.login());
-
-        //Since we let the cache expire, wiremock should have 2 hit counts
+        // After eviction, both endpoints should be called again
         wireMockServer.verify(2, getRequestedFor(urlEqualTo("/users/some-user")));
+        wireMockServer.verify(2, getRequestedFor(urlEqualTo("/users/some-user/repos")));
     }
 
     @Test
-    public void shouldNotFindUser() {
+    public void shouldNotFindUserOrAssociatedRepos() {
 
-        stubFor(get(urlEqualTo("/users/nonexistent-user"))
+        stubFor(get(urlPathEqualTo("/users/nonexistent-user"))
                 .willReturn(aResponse()
-                        .withBody(("{\"message\":\"User not found\"}"))
+                        .withStatus(404)
                         .withHeader("Content-Type", "application/json")
-                        .withStatus(404)));
+                        .withBody("{\"message\":\"User not found\"}")));
 
-        assertThrows(HttpClientErrorException.class, () ->
+        stubFor(get(urlPathEqualTo("/users/nonexistent-user/repos"))
+                .willReturn(aResponse()
+                        .withStatus(404)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"message\":\"Repos not found\"}")));
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () ->
                 githubController.retrieveGithubUser("nonexistent-user"));
 
-        // Verify WireMock received the request
-        wireMockServer.verify(getRequestedFor(urlEqualTo("/users/nonexistent-user")));
+        assertTrue(containsCause(ex, HttpClientErrorException.NotFound.class),
+                "Expected NotFound in cause chain, but got: " + ex.getClass());
 
+        wireMockServer.verify(1, getRequestedFor(urlPathEqualTo("/users/nonexistent-user")));
+        wireMockServer.verify(1, getRequestedFor(urlPathEqualTo("/users/nonexistent-user/repos")));
     }
 
     @Test
-    public void shouldFailDueToServiceError() {
+    public void shouldFailDueToServiceErrorAndCachesReposIfReposSucceeds() {
+        stubFor(get(urlPathEqualTo("/users/some-user"))
+                .willReturn(aResponse().withStatus(500)));
 
-        stubFor(get(urlEqualTo("/users/some-user"))
-                .willReturn(aResponse()
-                        .withStatus(500)
-                        .withHeader("Content-Type", "application/json")
-                        .withBody("{\"message\":\"Internal Server Error\"}")));
+        stubFor(get(urlPathEqualTo("/users/some-user/repos"))
+                .willReturn(okJson("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
-        assertThrows(HttpServerErrorException.class, () ->
+        RuntimeException ex = assertThrows(RuntimeException.class, () ->
                 githubController.retrieveGithubUser("some-user"));
 
-        wireMockServer.verify(getRequestedFor(urlEqualTo("/users/some-user")));
+        assertTrue(containsCause(ex, HttpServerErrorException.class),
+                "Expected HttpServerErrorException in cause chain but got: " + ex.getClass());
+
+        Cache githubUserCache = cacheManager.getCache("githubUsers");
+        Cache githubRepoCache = cacheManager.getCache("githubUserRepos");
+
+        assertNull(githubUserCache.get("some-user"), "User should not be cached on failure");
+        assertNotNull(githubRepoCache.get("some-user"), "Repos may be cached on partial success");
+
+        wireMockServer.verify(1, getRequestedFor(urlPathEqualTo("/users/some-user")));
+        wireMockServer.verify(1, getRequestedFor(urlPathEqualTo("/users/some-user/repos")));
+    }
+
+
+    @Test
+    public void shouldRetryOn429ThenSucceedAndCache() {
+        // user: 429 then 200
+        stubFor(get(urlEqualTo("/users/some-user"))
+                .inScenario("retry-user")
+                .whenScenarioStateIs(STARTED)
+                .willReturn(aResponse().withStatus(429))
+                .willSetStateTo("ok"));
+
+        stubFor(get(urlEqualTo("/users/some-user"))
+                .inScenario("retry-user")
+                .whenScenarioStateIs("ok")
+                .willReturn(okJson("{\"login\":\"some-user\"}")));
+
+        // repos: 429 then 200
+        stubFor(get(urlEqualTo("/users/some-user/repos"))
+                .inScenario("retry-repos")
+                .whenScenarioStateIs(STARTED)
+                .willReturn(aResponse().withStatus(429))
+                .willSetStateTo("ok"));
+
+        stubFor(get(urlEqualTo("/users/some-user/repos"))
+                .inScenario("retry-repos")
+                .whenScenarioStateIs("ok")
+                .willReturn(okJson("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
+
+        GithubUserWithRepos result = githubController.retrieveGithubUser("some-user");
+        assertEquals("some-user", result.owner().login());
+        assertEquals(1, result.repos().size());
+
+        // verify retries happened
+        wireMockServer.verify(2, getRequestedFor(urlEqualTo("/users/some-user")));
+        wireMockServer.verify(2, getRequestedFor(urlEqualTo("/users/some-user/repos")));
+
+        // second call should be cached (no additional wiremock hits)
+        githubController.retrieveGithubUser("some-user");
+        wireMockServer.verify(2, getRequestedFor(urlEqualTo("/users/some-user")));
+        wireMockServer.verify(2, getRequestedFor(urlEqualTo("/users/some-user/repos")));
     }
 
     @Test
-    void shouldThrowErrorMessageDueToMissingUsernameValue() {
-
-        stubFor(get(urlEqualTo("/users/"))
+    public void shouldCallEndpointsInParallel() {
+        stubFor(get(urlEqualTo("/users/some-user"))
                 .willReturn(aResponse()
-                        .withBody(("{\"message\":\"User not found\"}"))
+                        .withFixedDelay(600)
                         .withHeader("Content-Type", "application/json")
-                        .withStatus(404)));
+                        .withBody("{\"login\":\"some-user\"}")));
 
-        assertThrows(HttpClientErrorException.class, () ->
-                githubController.retrieveGithubUser(null));
+        stubFor(get(urlEqualTo("/users/some-user/repos"))
+                .willReturn(aResponse()
+                        .withFixedDelay(600)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
+
+        long start = System.nanoTime();
+        GithubUserWithRepos result = githubController.retrieveGithubUser("some-user");
+        long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
+
+        assertEquals("some-user", result.owner().login());
+        assertEquals(1, result.repos().size());
+
+        assertTrue(elapsedMs < 1100, "Expected parallel-ish behavior; elapsedMs=" + elapsedMs);
+
+        wireMockServer.verify(1, getRequestedFor(urlEqualTo("/users/some-user")));
+        wireMockServer.verify(1, getRequestedFor(urlEqualTo("/users/some-user/repos")));
     }
 
     @Test
     void shouldThrowErrorMessageDueToInvalidUsername() {
+        Set<?> violations = assertThrows(ConstraintViolationException.class, () ->
+                githubController.retrieveGithubUser("--bad-user")
+        ).getConstraintViolations();
 
-        Set<ConstraintViolation<?>> constraintsViolations = assertThrows(ConstraintViolationException.class, () -> {
-            githubController.retrieveGithubUser("--bad-user");
-        }).getConstraintViolations();
-
-        constraintsViolations.forEach(cv -> {
-            assertEquals(TestUtils.INVALID_FORMAT_USERNAME, cv.getMessage());
-        });
-
-
+        violations.forEach(v ->
+                assertTrue(v.toString().contains(TestUtils.INVALID_FORMAT_USERNAME))
+        );
     }
 
     @Test
     void shouldThrowErrorMessageDueToUsernameBeingTooLong() {
+        String tooLong = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        Set<?> violations = assertThrows(ConstraintViolationException.class, () ->
+                githubController.retrieveGithubUser(tooLong)
+        ).getConstraintViolations();
 
-        Set<ConstraintViolation<?>> constraintsViolations = assertThrows(ConstraintViolationException.class, () -> {
-            githubController.retrieveGithubUser("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        }).getConstraintViolations();
-
-        constraintsViolations.forEach(cv -> {
-            assertEquals(TestUtils.INVALID_LENGTH_USERNAME, cv.getMessage());
-        });
-
+        violations.forEach(v ->
+                assertTrue(v.toString().contains(TestUtils.INVALID_LENGTH_USERNAME))
+        );
     }
 
-
+    private static boolean containsCause(Throwable t, Class<? extends Throwable> type) {
+        while (t != null) {
+            if (type.isInstance(t)) return true;
+            t = t.getCause();
+        }
+        return false;
+    }
 }

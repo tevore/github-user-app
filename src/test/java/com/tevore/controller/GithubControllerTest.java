@@ -1,6 +1,6 @@
 package com.tevore.controller;
 
-import com.tevore.cache.CachingConfig;
+import com.tevore.configuration.CachingConfig;
 import com.tevore.error.GlobalExceptionHandler;
 import com.tevore.service.GithubService;
 import com.tevore.utils.TestUtils;
@@ -29,22 +29,22 @@ public class GithubControllerTest {
 
     @Test
     void shouldReturnUser() throws Exception {
-        when(githubService.getGithubUserInfo("some-user"))
-                .thenReturn(TestUtils.generateGithubUser());
+        when(githubService.retrieveGithubUserAndRepoInfo("some-user"))
+                .thenReturn(TestUtils.generateGitHubUserWithRepos());
 
         mockMvc.perform(MockMvcRequestBuilders
-                        .get("http://localhost:8081/user/{username}", "some-user"))
+                        .get("/user/{username}", "some-user"))
                 .andExpect(status().isOk())
                 .andExpect(MockMvcResultMatchers.jsonPath("$.login").value("some-user"));
     }
 
     @Test
     void shouldThrowErrorMessageDueToMissingUsernameValue() throws Exception {
-        when(githubService.getGithubUserInfo("some-user"))
-                .thenReturn(TestUtils.generateGithubUser());
+        when(githubService.retrieveGithubUserAndRepoInfo("some-user"))
+                .thenReturn(TestUtils.generateGitHubUserWithRepos());
 
         mockMvc.perform(MockMvcRequestBuilders
-                        .get("http://localhost:8081/user/{username}", ""))
+                        .get("/user/{username}", ""))
                 .andExpect(status().isBadRequest())
                 .andExpect(MockMvcResultMatchers.jsonPath("$.errorMessages[0]").value(TestUtils.INVALID_PATH_OR_MISSING_USERNAME));
 
@@ -52,16 +52,16 @@ public class GithubControllerTest {
 
     @Test
     void shouldThrowErrorMessageDueToInvalidUsername() throws Exception {
-        when(githubService.getGithubUserInfo("some-user"))
-                .thenReturn(TestUtils.generateGithubUser());
+        when(githubService.retrieveGithubUserAndRepoInfo("some-user"))
+                .thenReturn(TestUtils.generateGitHubUserWithRepos());
 
         mockMvc.perform(MockMvcRequestBuilders
-                        .get("http://localhost:8081/user/{username}", "--bad-user"))
+                        .get("/user/{username}", "--bad-user"))
                 .andExpect(status().is4xxClientError())
                 .andExpect(MockMvcResultMatchers.jsonPath("$.errorMessages[0]").value(TestUtils.INVALID_FORMAT_USERNAME));
 
         mockMvc.perform(MockMvcRequestBuilders
-                        .get("http://localhost:8081/user/{username}", "bad--user"))
+                        .get("/user/{username}", "bad--user"))
                 .andExpect(status().isBadRequest())
                 .andExpect(MockMvcResultMatchers.jsonPath("$.errorMessages[0]").value(TestUtils.INVALID_FORMAT_USERNAME));
 
@@ -69,11 +69,11 @@ public class GithubControllerTest {
 
     @Test
     void shouldThrowErrorMessageDueToUsernameBeingTooLong() throws Exception {
-        when(githubService.getGithubUserInfo("some-user"))
-                .thenReturn(TestUtils.generateGithubUser());
+        when(githubService.retrieveGithubUserAndRepoInfo("some-user"))
+                .thenReturn(TestUtils.generateGitHubUserWithRepos());
 
         mockMvc.perform(MockMvcRequestBuilders
-                        .get("http://localhost:8081/user/{username}", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+                        .get("/user/{username}", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
                 .andExpect(status().isBadRequest())
                 .andExpect(MockMvcResultMatchers.jsonPath("$.errorMessages[0]").value(TestUtils.INVALID_LENGTH_USERNAME));
 
@@ -81,11 +81,11 @@ public class GithubControllerTest {
 
     @Test
     void shouldThrowErrorMessageWhenUserIsNotFound() throws Exception {
-        when(githubService.getGithubUserInfo("not-found-user"))
+        when(githubService.retrieveGithubUserAndRepoInfo("not-found-user"))
                 .thenThrow(HttpClientErrorException.class);
 
         mockMvc.perform(MockMvcRequestBuilders
-                        .get("http://localhost:8081/user/{username}", "not-found-user"))
+                        .get("/user/{username}", "not-found-user"))
                 .andExpect(status().isNotFound())
                 .andExpect(MockMvcResultMatchers.jsonPath("$.errorMessages[0]").value(TestUtils.USER_NOT_FOUND));
 

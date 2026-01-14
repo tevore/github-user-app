@@ -1,55 +1,50 @@
 package com.tevore.service;
 
+import com.tevore.domain.GithubRepo;
 import com.tevore.domain.GithubUser;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.http.HttpStatusCode;
+import com.tevore.domain.GithubUserWithRepos;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.HttpServerErrorException;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.util.UriComponentsBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.net.URI;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
+/**
+ * This service class is the entrypoint to the actual downstream processing
+ * It utilizes an async client to perform the actual calls which isolates
+ * the concurrent call logic to a singular space of concern so that
+ * is it not muddied up with other logic ( e.g. retry )
+ * Aside from orchestration, it handles wrapping up the response in the expected format
+ */
 @Service
 public class GithubService {
 
-    /**
-     * TODO
-     *  review to ensure the caching is okay - LAST ( tests may also cover this )
-     *  consider rate limits? -- this would be improved via github app, but caching kind of works
-     *  possibly set this up to use Docker to launch ( might be overkill but hey )
-     */
-    private final RestClient restClient;
+    private final Logger LOGGER = LoggerFactory.getLogger(GithubService.class);
 
-    @Value("${github.url}")
-    private String baseUrl;
+    private final GithubServiceAsyncClient asyncClient;
 
-    public GithubService(RestClient.Builder builder) {
-        this.restClient = builder.build();
+    public GithubService(GithubServiceAsyncClient asyncClient) {
+        this.asyncClient = asyncClient;
     }
 
-    @Cacheable("githubUsers")
-    public GithubUser getGithubUserInfo(String username) {
+    public GithubUserWithRepos retrieveGithubUserAndRepoInfo(String username) {
 
-        if(username == null) {
-            throw new HttpClientErrorException(HttpStatusCode.valueOf(404), "Username cannot be null");
+        LOGGER.info("Initiating async calls");
+
+        CompletableFuture<GithubUser> userFetch = asyncClient.fetchUserAsync(username);
+        CompletableFuture<List<GithubRepo>> reposFetch = asyncClient.fetchReposAsync(username);
+
+        try {
+            GithubUser user = userFetch.join();
+            List<GithubRepo> repos = reposFetch.join();
+            return GithubUserWithRepos.of(user, repos);
+        } catch (CompletionException ce) {
+            Throwable cause = ce.getCause() != null ? ce.getCause() : ce;
+            if (cause instanceof RuntimeException re) throw re;
+            LOGGER.error("Failed to retrieve GitHub user + repos for user = {}", username + cause);
+            throw new RuntimeException("Failed to retrieve GitHub user + repos for " + username, cause);
         }
-
-        URI uri = UriComponentsBuilder.fromUriString(baseUrl)
-                .buildAndExpand(username)
-                .encode()
-                .toUri();
-
-        return restClient
-                .get()
-                .uri(uri)
-                .retrieve()
-                .onStatus(HttpStatusCode::is4xxClientError,
-                        (req, res) -> {throw new HttpClientErrorException(res.getStatusCode());})
-                .onStatus(HttpStatusCode::is5xxServerError,
-                        (req, res) -> {throw new HttpServerErrorException(res.getStatusCode());})
-                .body(GithubUser.class);
     }
 }
