@@ -26,6 +26,7 @@ In order to run the application, there are 3 main ways:
 2. From the terminal, inside of the project, you can run  ```./gradlew bootRun```
 3. If you have Docker installed, you can run the following commands as a Dockerfile is present in the app:
 ```
+./gradlew clean build
 docker build -t tevore/my-spring-boot-app .
 docker run -p 8080:8080 tevore/my-spring-boot-app
 ```
