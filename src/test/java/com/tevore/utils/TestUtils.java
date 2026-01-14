@@ -2,10 +2,11 @@ package com.tevore.utils;
 
 import com.tevore.domain.GithubRepo;
 import com.tevore.domain.GithubUser;
-import com.tevore.domain.GithubUserWithRepos;
+import com.tevore.domain.GithubUserWithReposResponse;
 import org.springframework.cache.Cache;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.fail;
@@ -25,20 +26,19 @@ public class TestUtils {
                 "Some User",
                 "Miami",
                 "someuser@example.com",
-                "2011-01-25T18:44:36Z");
+                Instant.now());
     }
 
-    public static GithubUserWithRepos generateGitHubUserWithRepos() {
-        return new GithubUserWithRepos(
-                new GithubUser(
+    public static GithubUserWithReposResponse generateGitHubUserWithRepos() {
+        return new GithubUserWithReposResponse(
                         "some-user",
                         "https://avatars.githubusercontent.com/u/583231?v=4",
                         "https://api.github.com/users/some-user",
                         "Some User",
                         "Miami",
                         "someuser@example.com",
-                        "2011-01-25T18:44:36Z"),
-                List.of(new GithubRepo("some-repo", "example.com"))
+                        "2011-01-25T18:44:36Z",
+                        List.of(new GithubRepo("some-repo", "example.com"))
         );
     }
 

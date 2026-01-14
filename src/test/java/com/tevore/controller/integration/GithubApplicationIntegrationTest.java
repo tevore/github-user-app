@@ -5,7 +5,7 @@ import com.tevore.configuration.TestCacheConfig;
 import com.tevore.controller.GithubController;
 import com.tevore.domain.GithubRepo;
 import com.tevore.domain.GithubUser;
-import com.tevore.domain.GithubUserWithRepos;
+import com.tevore.domain.GithubUserWithReposResponse;
 import com.tevore.utils.TestUtils;
 import jakarta.validation.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,11 +73,11 @@ public class GithubApplicationIntegrationTest {
                 .willReturn(okJson("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
         // Two calls to ensure the cache is being hit
-        GithubUserWithRepos firstCall = githubController.retrieveGithubUser("some-user");
-        GithubUserWithRepos secondCall = githubController.retrieveGithubUser("some-user");
+        GithubUserWithReposResponse firstCall = githubController.retrieveGithubUser("some-user");
+        GithubUserWithReposResponse secondCall = githubController.retrieveGithubUser("some-user");
 
         // Basic response assertions
-        assertEquals(firstCall.owner().login(), secondCall.owner().login());
+        assertEquals(firstCall.login(), secondCall.login());
         assertEquals(1, secondCall.repos().size());
         assertEquals("repo", secondCall.repos().get(0).name());
 
@@ -200,8 +200,8 @@ public class GithubApplicationIntegrationTest {
                 .whenScenarioStateIs("ok")
                 .willReturn(okJson("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
-        GithubUserWithRepos result = githubController.retrieveGithubUser("some-user");
-        assertEquals("some-user", result.owner().login());
+        GithubUserWithReposResponse result = githubController.retrieveGithubUser("some-user");
+        assertEquals("some-user", result.login());
         assertEquals(1, result.repos().size());
 
         // verify retries happened
@@ -229,10 +229,10 @@ public class GithubApplicationIntegrationTest {
                         .withBody("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
         long start = System.nanoTime();
-        GithubUserWithRepos result = githubController.retrieveGithubUser("some-user");
+        GithubUserWithReposResponse result = githubController.retrieveGithubUser("some-user");
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
-        assertEquals("some-user", result.owner().login());
+        assertEquals("some-user", result.login());
         assertEquals(1, result.repos().size());
 
         assertTrue(elapsedMs < 1100, "Expected parallel-ish behavior; elapsedMs=" + elapsedMs);

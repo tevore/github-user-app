@@ -2,12 +2,15 @@ package com.tevore.service;
 
 import com.tevore.domain.GithubRepo;
 import com.tevore.domain.GithubUser;
-import com.tevore.domain.GithubUserWithRepos;
+import com.tevore.domain.GithubUserWithReposResponse;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -23,13 +26,18 @@ public class GithubService {
 
     private final Logger LOGGER = LoggerFactory.getLogger(GithubService.class);
 
+    private static final DateTimeFormatter RFC_1123 =
+            DateTimeFormatter.RFC_1123_DATE_TIME
+                    .withLocale(Locale.US)
+                    .withZone(ZoneId.of("GMT"));
+
     private final GithubServiceAsyncClient asyncClient;
 
     public GithubService(GithubServiceAsyncClient asyncClient) {
         this.asyncClient = asyncClient;
     }
 
-    public GithubUserWithRepos retrieveGithubUserAndRepoInfo(String username) {
+    public GithubUserWithReposResponse retrieveGithubUserAndRepoInfo(String username) {
 
         LOGGER.info("Initiating async calls");
 
@@ -39,12 +47,37 @@ public class GithubService {
         try {
             GithubUser user = userFetch.join();
             List<GithubRepo> repos = reposFetch.join();
-            return GithubUserWithRepos.of(user, repos);
+
+            return toResponse(user, repos);
+
         } catch (CompletionException ce) {
             Throwable cause = ce.getCause() != null ? ce.getCause() : ce;
             if (cause instanceof RuntimeException re) throw re;
-            LOGGER.error("Failed to retrieve GitHub user + repos for user = {}", username + cause);
-            throw new RuntimeException("Failed to retrieve GitHub user + repos for " + username, cause);
+
+            LOGGER.error("Failed to retrieve GitHub user + repos for user={}", username, cause);
+            throw new RuntimeException(
+                    "Failed to retrieve GitHub user + repos for " + username,
+                    cause
+            );
         }
     }
+
+    private GithubUserWithReposResponse toResponse(
+            GithubUser user,
+            List<GithubRepo> repos
+    ) {
+        return new GithubUserWithReposResponse(
+                user.login(),
+                user.avatarUrl(),
+                user.url(),
+                user.name(),
+                user.location(),
+                user.email(),
+                user.createdAt() == null
+                        ? null
+                        : RFC_1123.format(user.createdAt()),
+                List.copyOf(repos)
+        );
+    }
+
 }

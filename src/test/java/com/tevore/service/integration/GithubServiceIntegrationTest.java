@@ -4,7 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.tevore.configuration.TestCacheConfig;
 import com.tevore.domain.GithubRepo;
 import com.tevore.domain.GithubUser;
-import com.tevore.domain.GithubUserWithRepos;
+import com.tevore.domain.GithubUserWithReposResponse;
 import com.tevore.service.GithubService;
 import com.tevore.utils.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,10 +62,10 @@ class GithubServiceIntegrationTest {
         stubFor(get(urlEqualTo("/users/some-user/repos"))
                 .willReturn(okJson("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
-        GithubUserWithRepos first = githubService.retrieveGithubUserAndRepoInfo("some-user");
-        GithubUserWithRepos second = githubService.retrieveGithubUserAndRepoInfo("some-user");
+        GithubUserWithReposResponse first = githubService.retrieveGithubUserAndRepoInfo("some-user");
+        GithubUserWithReposResponse second = githubService.retrieveGithubUserAndRepoInfo("some-user");
 
-        assertEquals(first.owner().login(), second.owner().login());
+        assertEquals(first.login(), second.login());
         assertEquals(1, second.repos().size());
         assertEquals("repo", second.repos().get(0).name());
 
@@ -110,9 +110,9 @@ class GithubServiceIntegrationTest {
                 .whenScenarioStateIs("ok")
                 .willReturn(okJson("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
-        GithubUserWithRepos res = githubService.retrieveGithubUserAndRepoInfo("some-user");
+        GithubUserWithReposResponse res = githubService.retrieveGithubUserAndRepoInfo("some-user");
 
-        assertEquals("some-user", res.owner().login());
+        assertEquals("some-user", res.login());
         assertEquals(1, res.repos().size());
 
         // Verify retries happened (>= 2 calls to each endpoint)
@@ -142,10 +142,10 @@ class GithubServiceIntegrationTest {
                         .withBody("[{\"name\":\"repo\",\"url\":\"example.com\"}]")));
 
         long start = System.nanoTime();
-        GithubUserWithRepos res = githubService.retrieveGithubUserAndRepoInfo("some-user");
+        GithubUserWithReposResponse res = githubService.retrieveGithubUserAndRepoInfo("some-user");
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
-        assertEquals("some-user", res.owner().login());
+        assertEquals("some-user", res.login());
         assertEquals(1, res.repos().size());
 
         // Threshold chosen to be tolerant of CI noise, but still catch serial behavior.

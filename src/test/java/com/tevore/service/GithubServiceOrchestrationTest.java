@@ -2,7 +2,7 @@ package com.tevore.service;
 
 import com.tevore.domain.GithubRepo;
 import com.tevore.domain.GithubUser;
-import com.tevore.domain.GithubUserWithRepos;
+import com.tevore.domain.GithubUserWithReposResponse;
 import com.tevore.utils.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -40,10 +41,10 @@ class GithubServiceOrchestrationTest {
         when(asyncClient.fetchReposAsync("some-user"))
                 .thenReturn(CompletableFuture.completedFuture(repos));
 
-        GithubUserWithRepos result = githubService.retrieveGithubUserAndRepoInfo("some-user");
+        GithubUserWithReposResponse result = githubService.retrieveGithubUserAndRepoInfo("some-user");
 
         assertNotNull(result);
-        assertEquals("some-user", result.owner().login());
+        assertEquals("some-user", result.login());
         assertEquals(1, result.repos().size());
         assertEquals("repo", result.repos().get(0).name());
 
@@ -110,5 +111,42 @@ class GithubServiceOrchestrationTest {
         verify(asyncClient, times(1)).fetchReposAsync("some-user");
         verifyNoMoreInteractions(asyncClient);
     }
+
+    @Test
+    void successfullyFormatsDateAndCombinesResults() {
+        GithubUser user = new GithubUser(
+                "some-user",
+                "avatar",
+                "url",
+                "John",
+                "USA",
+                "email",
+                Instant.parse("2014-03-04T12:24:54Z")
+        );
+
+        List<GithubRepo> repos = List.of(
+                new GithubRepo("repo", "example.com")
+        );
+
+        when(asyncClient.fetchUserAsync("some-user"))
+                .thenReturn(CompletableFuture.completedFuture(user));
+
+        when(asyncClient.fetchReposAsync("some-user"))
+                .thenReturn(CompletableFuture.completedFuture(repos));
+
+        GithubUserWithReposResponse result =
+                githubService.retrieveGithubUserAndRepoInfo("some-user");
+
+        assertEquals("some-user", result.login());
+        assertEquals("Tue, 4 Mar 2014 12:24:54 GMT", result.createdAt());
+        assertEquals(1, result.repos().size());
+        assertEquals("repo", result.repos().get(0).name());
+
+        verify(asyncClient).fetchUserAsync("some-user");
+        verify(asyncClient).fetchReposAsync("some-user");
+        verifyNoMoreInteractions(asyncClient);
+    }
+
+
 }
 
